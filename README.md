@@ -2,6 +2,12 @@
 
 A Rust implementation of the `tree` command for macOS.
 
+Original C codebase: Tree of Unix/Linux
+
+-  [Gitlab](https://gitlab.com/OldManProgrammer/unix-tree)
+
+-  [Github](https://github.com/Old-Man-Programmer/tree)
+
 ## Features
 
 -   Displays directory structures in a tree-like format.
@@ -12,24 +18,16 @@ A Rust implementation of the `tree` command for macOS.
 
 ## Installation
 
-### Using Cargo
-
-```bash
-cargo install macos-tree
-```
-
-### From Source
-
 1.  Clone the repository:
 
     ```bash
-    git clone https://github.com/yourusername/macos-tree.git
+    git clone https://github.com/tuanemdev/macOS-tree.git
     ```
 
 2.  Navigate to the project directory:
 
     ```bash
-    cd macos-tree
+    cd macOS-tree
     ```
 
 3.  Build and install:
