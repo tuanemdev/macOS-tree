@@ -50,10 +50,6 @@ fn main() {
     let mut total_stats: FileStats = FileStats { dirs: 0, files: 0 };
 
     for path in &config.paths {
-        if config.paths.len() > 1 {
-            println!("\n{}", path.display());
-        }
-
         match visit_dir(path, &config, 0, &mut total_stats, "") {
             Ok(_) => (),
             Err(err) => {
@@ -72,20 +68,20 @@ fn main() {
 fn parse_args() -> Config {
     let args: Vec<String> = env::args().skip(1).collect();
     let mut config: Config = Config::default();
-    let mut i = 0;
+    let mut index: usize = 0;
 
-    while i < args.len() {
-        match args[i].as_str() {
+    while index < args.len() {
+        match args[index].as_str() {
             "-a" | "--all" => config.all = true,
             "-d" | "--dirs-only" => config.dirs_only = true,
             "-i" | "--no-indent" => config.no_indent = true,
             "-L" | "--max-depth" => {
-                if i + 1 < args.len() {
-                    i += 1;
-                    match args[i].parse::<usize>() {
+                if index + 1 < args.len() {
+                    index += 1;
+                    match args[index].parse::<usize>() {
                         Ok(depth) => config.max_depth = Some(depth),
                         Err(_) => {
-                            eprintln!("Invalid depth value: {}", args[i]);
+                            eprintln!("Invalid depth value: {}", args[index]);
                             process::exit(1);
                         }
                     }
@@ -97,16 +93,16 @@ fn parse_args() -> Config {
             "-v" | "--version" => config.version = true,
             "-h" | "--help" => config.help = true,
             _ => {
-                if args[i].starts_with('-') {
-                    eprintln!("Unknown option: {}", args[i]);
+                if args[index].starts_with('-') {
+                    eprintln!("Unknown option: {}", args[index]);
                     print_help();
                     process::exit(1);
                 } else {
-                    config.paths.push(PathBuf::from(&args[i]));
+                    config.paths.push(PathBuf::from(&args[index]));
                 }
             }
         }
-        i += 1;
+        index += 1;
     }
 
     // If specific paths were provided, clear the default path
@@ -145,21 +141,21 @@ fn visit_dir(
 
     // Print directory name at level 0
     if level == 0 {
-        println!("{}", dir.display());
+        println!("{}/", dir.display());
         stats.dirs += 1;
     }
 
-    let entries = fs::read_dir(dir)?;
+    let entries: fs::ReadDir = fs::read_dir(dir)?;
     let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
 
     // Sort entries by name
     entries.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
 
     // Iterate through sorted entries
-    for (i, entry) in entries.iter().enumerate() {
-        let path = entry.path();
-        let file_name = entry.file_name();
-        let is_dir = path.is_dir();
+    for (index, entry) in entries.iter().enumerate() {
+        let path: PathBuf = entry.path();
+        let file_name: std::ffi::OsString = entry.file_name();
+        let is_dir: bool = path.is_dir();
 
         // Skip hidden files unless -a flag is provided
         if !config.all && file_name.to_string_lossy().starts_with('.') {
@@ -171,7 +167,7 @@ fn visit_dir(
             continue;
         }
 
-        let is_last = i == entries.len() - 1;
+        let is_last: bool = index == entries.len() - 1;
 
         // Calculate new prefix for child items
         let (connector, new_prefix) = if config.no_indent {
@@ -182,14 +178,20 @@ fn visit_dir(
             ("├── ", "│   ")
         };
 
-        // Print the current entry
-        println!("{}{}{}", prefix, connector, file_name.to_string_lossy());
+        // Print the current entry with a slash for directories
+        let display_name: String = if is_dir {
+            format!("{}/", file_name.to_string_lossy())
+        } else {
+            file_name.to_string_lossy().to_string()
+        };
+
+        println!("{}{}{}", prefix, connector, display_name);
 
         // Update statistics
         if is_dir {
             stats.dirs += 1;
             // Recursively visit subdirectories
-            let child_prefix = format!("{}{}", prefix, new_prefix);
+            let child_prefix: String = format!("{}{}", prefix, new_prefix);
             visit_dir(&path, config, level + 1, stats, &child_prefix)?;
         } else {
             stats.files += 1;
