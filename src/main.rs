@@ -1,6 +1,6 @@
 use std::env;
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 
@@ -15,6 +15,7 @@ struct Config {
     help: bool,
     output_path: Option<PathBuf>,
     full_path: bool,
+    gitignore: bool,
 }
 
 impl Default for Config {
@@ -29,6 +30,7 @@ impl Default for Config {
             help: false,
             output_path: None,
             full_path: false,
+            gitignore: false,
         }
     }
 }
@@ -64,6 +66,128 @@ fn main() {
             process::exit(1);
         }
     }
+}
+
+// Improved gitignore pattern matching
+fn matches_gitignore_pattern(path: &Path, base_dir: &Path, patterns: &[String]) -> bool {
+    let filename = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    // Relative path from the base directory
+    let relative_path = path
+        .strip_prefix(base_dir)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    patterns.iter().any(|pattern| {
+        // Trim whitespace and handle negation
+        let pattern = pattern.trim();
+        if pattern.is_empty() || pattern.starts_with('#') {
+            return false;
+        }
+
+        // Handle negation patterns
+        let is_negation = pattern.starts_with('!');
+        let pattern = if is_negation { &pattern[1..] } else { pattern };
+
+        // Handle absolute path patterns starting with /
+        let is_absolute_pattern = pattern.starts_with('/');
+        let pattern = pattern.trim_start_matches('/');
+
+        // Handle directory-only patterns ending with /
+        let is_directory_pattern = pattern.ends_with('/');
+        let pattern = pattern.trim_end_matches('/');
+
+        // Check exact filename or path matches
+        if is_absolute_pattern {
+            // For absolute patterns, match against relative path
+            if relative_path == pattern || relative_path.ends_with(&format!("/{}", pattern)) {
+                return !is_negation;
+            }
+        } else {
+            // For relative patterns, match filename or path
+            if is_directory_pattern && path.is_dir() {
+                if filename == pattern || relative_path.contains(&format!("/{}/", pattern)) {
+                    return !is_negation;
+                }
+            } else {
+                // Wildcard matching for filename
+                if matches_filename_pattern(&filename, pattern)
+                    || relative_path.contains(&format!("/{}", pattern))
+                {
+                    return !is_negation;
+                }
+            }
+        }
+
+        false
+    })
+}
+
+// Helper function for filename pattern matching
+fn matches_filename_pattern(filename: &str, pattern: &str) -> bool {
+    let pattern_chars: Vec<char> = pattern.chars().collect();
+    let filename_chars: Vec<char> = filename.chars().collect();
+
+    // Custom wildcard matching function
+    fn wildcard_match(pattern: &[char], text: &[char]) -> bool {
+        fn match_helper(p: &[char], t: &[char], p_idx: usize, t_idx: usize) -> bool {
+            // Base cases
+            if p_idx == p.len() {
+                return t_idx == t.len();
+            }
+
+            if t_idx == t.len() {
+                // Only * can match empty string at end
+                return p[p_idx..].iter().all(|&c| c == '*');
+            }
+
+            // Wildcard handling
+            match p[p_idx] {
+                '*' => {
+                    // Try matching 0 or more characters
+                    (t_idx..=t.len()).any(|i| match_helper(p, t, p_idx + 1, i))
+                }
+                '?' => {
+                    // Match any single character
+                    match_helper(p, t, p_idx + 1, t_idx + 1)
+                }
+                c => {
+                    // Exact character match
+                    c == t[t_idx] && match_helper(p, t, p_idx + 1, t_idx + 1)
+                }
+            }
+        }
+
+        match_helper(pattern, text, 0, 0)
+    }
+
+    wildcard_match(&pattern_chars, &filename_chars)
+}
+
+// Read .gitignore file
+fn read_gitignore(dir: &Path) -> Vec<String> {
+    let gitignore_path: PathBuf = dir.join(".gitignore");
+    if !gitignore_path.exists() {
+        return Vec::new();
+    }
+
+    let file: fs::File = match fs::File::open(&gitignore_path) {
+        Ok(file) => file,
+        Err(_) => return Vec::new(),
+    };
+
+    let reader: BufReader<fs::File> = BufReader::new(file);
+    reader
+        .lines()
+        .filter_map(Result::ok)
+        .filter(|line: &String| {
+            // Skip comments and empty lines
+            !line.trim().is_empty() && !line.trim().starts_with('#')
+        })
+        .collect()
 }
 
 fn generate_tree(config: &Config) -> io::Result<()> {
@@ -107,6 +231,7 @@ fn parse_args() -> Config {
             "-d" | "--dirs-only" => config.dirs_only = true,
             "-i" | "--no-indent" => config.no_indent = true,
             "-f" | "--full-path" => config.full_path = true,
+            "-g" | "--gitignore" => config.gitignore = true,
             "-L" | "--max-depth" => {
                 if index + 1 < args.len() {
                     index += 1;
@@ -163,6 +288,7 @@ fn print_help() {
     println!("  -d, --dirs-only       List directories only");
     println!("  -i, --no-indent       Don't print indentation lines");
     println!("  -f, --full-path       Display full file paths");
+    println!("  -g, --gitignore       Ignore files specified in .gitignore");
     println!("  -L, --max-depth LEVEL Max display depth of the directory tree");
     println!("  -o, --output FILE     Output tree to a file");
     println!("  -v, --version         Print version information");
@@ -184,6 +310,13 @@ fn visit_dir(
             return Ok(output);
         }
     }
+
+    // Read .gitignore patterns if gitignore option is used
+    let gitignore_patterns: Vec<String> = if config.gitignore {
+        read_gitignore(dir)
+    } else {
+        Vec::new()
+    };
 
     // Print directory name at level 0
     if level == 0 {
@@ -216,6 +349,16 @@ fn visit_dir(
 
         // Skip files if -d flag is provided
         if config.dirs_only && !is_dir {
+            continue;
+        }
+
+        // Skip .git directory if gitignore option is used
+        if config.gitignore && file_name == ".git" {
+            continue;
+        }
+
+        // Check gitignore patterns
+        if config.gitignore && matches_gitignore_pattern(&path, dir, &gitignore_patterns) {
             continue;
         }
 
