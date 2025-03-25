@@ -14,6 +14,7 @@ struct Config {
     version: bool,
     help: bool,
     output_path: Option<PathBuf>,
+    full_path: bool,
 }
 
 impl Default for Config {
@@ -27,6 +28,7 @@ impl Default for Config {
             version: false,
             help: false,
             output_path: None,
+            full_path: false,
         }
     }
 }
@@ -100,6 +102,7 @@ fn parse_args() -> Config {
             "-a" | "--all" => config.all = true,
             "-d" | "--dirs-only" => config.dirs_only = true,
             "-i" | "--no-indent" => config.no_indent = true,
+            "-f" | "--full-path" => config.full_path = true,
             "-L" | "--max-depth" => {
                 if index + 1 < args.len() {
                     index += 1;
@@ -148,12 +151,14 @@ fn parse_args() -> Config {
 }
 
 fn print_help() {
+    println!("Tree Command v{}", VERSION);
     println!("Usage: tree [OPTIONS] [PATH...]");
     println!("List contents of directories in a tree-like format.");
     println!("\nOptions:");
     println!("  -a, --all             All files are listed");
     println!("  -d, --dirs-only       List directories only");
     println!("  -i, --no-indent       Don't print indentation lines");
+    println!("  -f, --full-path       Display full file paths");
     println!("  -L, --max-depth LEVEL Max display depth of the directory tree");
     println!("  -o, --output FILE     Output tree to a file");
     println!("  -v, --version         Print version information");
@@ -178,7 +183,13 @@ fn visit_dir(
 
     // Print directory name at level 0
     if level == 0 {
-        output.push_str(&format!("{}/\n", dir.display()));
+        // Use full path if -f/--full-path is set
+        let display_path = if config.full_path {
+            dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf())
+        } else {
+            dir.to_path_buf()
+        };
+        output.push_str(&format!("{}/\n", display_path.display()));
         stats.dirs += 1;
     }
 
@@ -215,11 +226,19 @@ fn visit_dir(
             ("├── ", "│   ")
         };
 
-        // Create display name with slash for directories
-        let display_name: String = if is_dir {
-            format!("{}/", file_name.to_string_lossy())
+        // Create display name
+        let display_name: String = if config.full_path {
+            // Use canonicalized full path if requested
+            let full_path: PathBuf = path.canonicalize().unwrap_or_else(|_| path.clone());
+            full_path.to_string_lossy().to_string()
         } else {
-            file_name.to_string_lossy().to_string()
+            // Use just the filename
+            let name: String = if is_dir {
+                format!("{}/", file_name.to_string_lossy())
+            } else {
+                file_name.to_string_lossy().to_string()
+            };
+            name
         };
 
         // Add current entry to output
