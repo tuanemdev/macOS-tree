@@ -18,27 +18,33 @@ Original C codebase: Tree of Unix/Linux
 
 ## Installation
 
+0.  Install Rust
+    ```zsh
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+    ```
+
 1.  Clone the repository:
 
-    ```bash
+    ```zsh
     git clone https://github.com/tuanemdev/macOS-tree.git
     ```
 
 2.  Navigate to the project directory:
 
-    ```bash
+    ```zsh
     cd macOS-tree
     ```
 
 3.  Build and install:
 
-    ```bash
-    cargo install --path .
+    ```zsh
+    cargo build --release
+    cp target/release/tree /usr/local/bin/
     ```
 
 ## Usage
 
-```bash
+```zsh
 tree [OPTIONS] [DIRECTORY]
 ```
 
@@ -55,37 +61,37 @@ tree [OPTIONS] [DIRECTORY]
 
 -   List the current directory:
 
-    ```bash
+    ```zsh
     tree
     ```
 
 -   List the `Documents` directory:
 
-    ```bash
+    ```zsh
     tree ~/Documents
     ```
 
 -   List all files and directories in the current directory, including hidden ones:
 
-    ```bash
+    ```zsh
     tree -a
     ```
 
 -   List only directories in the current directory:
 
-    ```bash
+    ```zsh
     tree -d
     ```
 
 -   List the directory structure up to 2 levels deep:
 
-    ```bash
+    ```zsh
     tree -L 2
     ```
 
 - List the full path of each file and directory
 
-    ```bash
+    ```zsh
     tree -f
     ```
 
