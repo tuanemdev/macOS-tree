@@ -54,7 +54,11 @@ fn main() {
     }
 
     match generate_tree(&config) {
-        Ok(_) => println!("Tree output generated successfully."),
+        Ok(_) => {
+            if config.output_path.is_some() {
+                println!("Tree output generated successfully.")
+            }
+        }
         Err(err) => {
             eprintln!("Error generating tree: {}", err);
             process::exit(1);
@@ -184,7 +188,7 @@ fn visit_dir(
     // Print directory name at level 0
     if level == 0 {
         // Use full path if -f/--full-path is set
-        let display_path = if config.full_path {
+        let display_path: PathBuf = if config.full_path {
             dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf())
         } else {
             dir.to_path_buf()
