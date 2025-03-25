@@ -36,11 +36,13 @@ struct FileStats {
     files: usize,
 }
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 fn main() {
     let config: Config = parse_args();
 
     if config.version {
-        println!("tree 1.0.0");
+        println!("tree {}", VERSION);
         return;
     }
 
