@@ -58,7 +58,7 @@ fn main() {
     match generate_tree(&config) {
         Ok(_) => {
             if config.output_path.is_some() {
-                println!("Tree output generated successfully.")
+                println!("Tree output generated successfully.");
             }
         }
         Err(err) => {
@@ -68,37 +68,249 @@ fn main() {
     }
 }
 
-// Improved gitignore pattern matching
-fn matches_gitignore_pattern(path: &Path, base_dir: &Path, patterns: &[String]) -> bool {
-    let filename = path
+fn generate_tree(config: &Config) -> io::Result<()> {
+    let mut tree_output: String = String::new();
+
+    for path in &config.paths {
+        let mut path_stats: FileStats = FileStats { dirs: 0, files: 0 };
+        let path_tree: String = visit_dir(path, config, 0, &mut path_stats, "")?;
+
+        tree_output.push_str(&path_tree);
+        tree_output.push_str(&format!(
+            "\n{} directories, {} files\n",
+            path_stats.dirs, path_stats.files
+        ));
+    }
+
+    // If output path is specified, write to file
+    if let Some(output_path) = &config.output_path {
+        let mut file: fs::File = fs::File::create(output_path)?;
+        file.write_all(tree_output.as_bytes())?;
+    } else {
+        // If no output path, print to console
+        print!("{}", tree_output);
+    }
+
+    Ok(())
+}
+
+fn parse_args() -> Config {
+    let args: Vec<String> = env::args().skip(1).collect();
+    let mut config: Config = Config::default();
+    let mut index: usize = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "-a" | "--all" => config.all = true,
+            "-d" | "--dirs-only" => config.dirs_only = true,
+            "-i" | "--no-indent" => config.no_indent = true,
+            "-f" | "--full-path" => config.full_path = true,
+            "-g" | "--gitignore" => config.gitignore = true,
+            "-l" | "--max-depth" => {
+                if index + 1 < args.len() {
+                    index += 1;
+                    match args[index].parse::<usize>() {
+                        Ok(depth) => config.max_depth = Some(depth),
+                        Err(_) => {
+                            eprintln!("Invalid depth value: {}", args[index]);
+                            process::exit(1);
+                        }
+                    }
+                } else {
+                    eprintln!("Missing value for --max-depth");
+                    process::exit(1);
+                }
+            }
+            "-o" | "--output" => {
+                if index + 1 < args.len() {
+                    index += 1;
+                    config.output_path = Some(PathBuf::from(&args[index]));
+                } else {
+                    eprintln!("Missing value for --output");
+                    process::exit(1);
+                }
+            }
+            "-v" | "--version" => config.version = true,
+            "-h" | "--help" => config.help = true,
+            _ => {
+                if args[index].starts_with('-') {
+                    eprintln!("Unknown option: {}", args[index]);
+                    print_help();
+                    process::exit(1);
+                } else {
+                    config.paths.push(PathBuf::from(&args[index]));
+                }
+            }
+        }
+        index += 1;
+    }
+
+    // If specific paths were provided, clear the default path
+    if config.paths.len() > 1 {
+        config.paths.remove(0);
+    }
+
+    config
+}
+
+fn print_help() {
+    println!("Tree Command v{}", VERSION);
+    println!("Usage: tree [OPTIONS] [PATH...]");
+    println!("List contents of directories in a tree-like format.");
+    println!("\nOptions:");
+    println!("  -a, --all                 All files are listed");
+    println!("  -d, --dirs-only           List directories only");
+    println!("  -i, --no-indent           Don't print indentation lines");
+    println!("  -f, --full-path           Display full file paths");
+    println!("  -g, --gitignore           Ignore files specified in .gitignore");
+    println!("  -l, --max-depth level     Max display depth of the directory tree");
+    println!("  -o, --output file         Output tree to a file");
+    println!("  -v, --version             Print version information");
+    println!("  -h, --help                Print this help message");
+}
+
+fn visit_dir(
+    dir: &Path,
+    config: &Config,
+    level: usize,
+    stats: &mut FileStats,
+    prefix: &str,
+) -> io::Result<String> {
+    let mut output: String = String::new();
+
+    // Check max depth
+    if let Some(max_depth) = config.max_depth {
+        if level > max_depth {
+            return Ok(output);
+        }
+    }
+
+    // Read .gitignore patterns if gitignore option is used
+    let gitignore_patterns: Vec<String> = if config.gitignore {
+        read_gitignore(dir)
+    } else {
+        Vec::new()
+    };
+
+    // Print directory name at level 0
+    if level == 0 {
+        // Use full path if -f/--full-path is set
+        let display_path: PathBuf = if config.full_path {
+            dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf())
+        } else {
+            dir.to_path_buf()
+        };
+        output.push_str(&format!("{}/\n", display_path.display()));
+        stats.dirs += 1;
+    }
+
+    let entries: fs::ReadDir = fs::read_dir(dir)?;
+    let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
+
+    // Sort entries by name
+    entries.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+
+    // Iterate through sorted entries
+    for (index, entry) in entries.iter().enumerate() {
+        let path: PathBuf = entry.path();
+        let file_name: std::ffi::OsString = entry.file_name();
+        let is_dir: bool = path.is_dir();
+
+        // Skip hidden files unless -a flag is provided
+        if !config.all && file_name.to_string_lossy().starts_with('.') {
+            continue;
+        }
+
+        // Skip files if -d flag is provided
+        if config.dirs_only && !is_dir {
+            continue;
+        }
+
+        // Skip .git directory if gitignore option is used
+        if config.gitignore && file_name == ".git" {
+            continue;
+        }
+
+        // Check gitignore patterns
+        if config.gitignore && matches_pattern(&path, dir, &gitignore_patterns) {
+            continue;
+        }
+
+        let is_last: bool = index == entries.len() - 1;
+
+        // Calculate new prefix for child items
+        let (connector, new_prefix) = if config.no_indent {
+            ("", "")
+        } else if is_last {
+            ("└── ", "    ")
+        } else {
+            ("├── ", "│   ")
+        };
+
+        // Create display name
+        let display_name: String = if config.full_path {
+            // Use canonicalized full path if requested
+            let full_path: PathBuf = path.canonicalize().unwrap_or_else(|_| path.clone());
+            full_path.to_string_lossy().to_string()
+        } else {
+            // Use just the filename
+            let name: String = if is_dir {
+                format!("{}/", file_name.to_string_lossy())
+            } else {
+                file_name.to_string_lossy().to_string()
+            };
+            name
+        };
+
+        // Add current entry to output
+        output.push_str(&format!("{}{}{}\n", prefix, connector, display_name));
+
+        // Update statistics
+        if is_dir {
+            stats.dirs += 1;
+            // Recursively visit subdirectories
+            let child_prefix: String = format!("{}{}", prefix, new_prefix);
+            let child_output: String = visit_dir(&path, config, level + 1, stats, &child_prefix)?;
+            output.push_str(&child_output);
+        } else {
+            stats.files += 1;
+        }
+    }
+
+    Ok(output)
+}
+
+// pattern matching
+fn matches_pattern(path: &Path, base_dir: &Path, patterns: &[String]) -> bool {
+    let filename: String = path
         .file_name()
-        .map(|n| n.to_string_lossy().to_string())
+        .map(|n: &std::ffi::OsStr| n.to_string_lossy().to_string())
         .unwrap_or_default();
 
     // Relative path from the base directory
-    let relative_path = path
+    let relative_path: String = path
         .strip_prefix(base_dir)
-        .map(|p| p.to_string_lossy().to_string())
+        .map(|p: &Path| p.to_string_lossy().to_string())
         .unwrap_or_default();
 
     patterns.iter().any(|pattern| {
         // Trim whitespace and handle negation
-        let pattern = pattern.trim();
+        let pattern: &str = pattern.trim();
         if pattern.is_empty() || pattern.starts_with('#') {
             return false;
         }
 
         // Handle negation patterns
-        let is_negation = pattern.starts_with('!');
-        let pattern = if is_negation { &pattern[1..] } else { pattern };
+        let is_negation: bool = pattern.starts_with('!');
+        let pattern: &str = if is_negation { &pattern[1..] } else { pattern };
 
         // Handle absolute path patterns starting with /
-        let is_absolute_pattern = pattern.starts_with('/');
-        let pattern = pattern.trim_start_matches('/');
+        let is_absolute_pattern: bool = pattern.starts_with('/');
+        let pattern: &str = pattern.trim_start_matches('/');
 
         // Handle directory-only patterns ending with /
-        let is_directory_pattern = pattern.ends_with('/');
-        let pattern = pattern.trim_end_matches('/');
+        let is_directory_pattern: bool = pattern.ends_with('/');
+        let pattern: &str = pattern.trim_end_matches('/');
 
         // Check exact filename or path matches
         if is_absolute_pattern {
@@ -188,220 +400,4 @@ fn read_gitignore(dir: &Path) -> Vec<String> {
             !line.trim().is_empty() && !line.trim().starts_with('#')
         })
         .collect()
-}
-
-fn generate_tree(config: &Config) -> io::Result<()> {
-    let mut total_stats: FileStats = FileStats { dirs: 0, files: 0 };
-    let mut tree_output: String = String::new();
-
-    for path in &config.paths {
-        let mut path_stats: FileStats = FileStats { dirs: 0, files: 0 };
-        let path_tree: String = visit_dir(path, config, 0, &mut path_stats, "")?;
-
-        tree_output.push_str(&path_tree);
-        tree_output.push_str(&format!(
-            "\n{} directories, {} files\n",
-            path_stats.dirs, path_stats.files
-        ));
-
-        total_stats.dirs += path_stats.dirs;
-        total_stats.files += path_stats.files;
-    }
-
-    // If output path is specified, write to file
-    if let Some(output_path) = &config.output_path {
-        let mut file: fs::File = fs::File::create(output_path)?;
-        file.write_all(tree_output.as_bytes())?;
-    } else {
-        // If no output path, print to console
-        print!("{}", tree_output);
-    }
-
-    Ok(())
-}
-
-fn parse_args() -> Config {
-    let args: Vec<String> = env::args().skip(1).collect();
-    let mut config: Config = Config::default();
-    let mut index: usize = 0;
-
-    while index < args.len() {
-        match args[index].as_str() {
-            "-a" | "--all" => config.all = true,
-            "-d" | "--dirs-only" => config.dirs_only = true,
-            "-i" | "--no-indent" => config.no_indent = true,
-            "-f" | "--full-path" => config.full_path = true,
-            "-g" | "--gitignore" => config.gitignore = true,
-            "-L" | "--max-depth" => {
-                if index + 1 < args.len() {
-                    index += 1;
-                    match args[index].parse::<usize>() {
-                        Ok(depth) => config.max_depth = Some(depth),
-                        Err(_) => {
-                            eprintln!("Invalid depth value: {}", args[index]);
-                            process::exit(1);
-                        }
-                    }
-                } else {
-                    eprintln!("Missing value for --max-depth");
-                    process::exit(1);
-                }
-            }
-            "-o" | "--output" => {
-                if index + 1 < args.len() {
-                    index += 1;
-                    config.output_path = Some(PathBuf::from(&args[index]));
-                } else {
-                    eprintln!("Missing value for --output");
-                    process::exit(1);
-                }
-            }
-            "-v" | "--version" => config.version = true,
-            "-h" | "--help" => config.help = true,
-            _ => {
-                if args[index].starts_with('-') {
-                    eprintln!("Unknown option: {}", args[index]);
-                    print_help();
-                    process::exit(1);
-                } else {
-                    config.paths.push(PathBuf::from(&args[index]));
-                }
-            }
-        }
-        index += 1;
-    }
-
-    // If specific paths were provided, clear the default path
-    if config.paths.len() > 1 {
-        config.paths.remove(0); // Remove the default "." path
-    }
-
-    config
-}
-
-fn print_help() {
-    println!("Tree Command v{}", VERSION);
-    println!("Usage: tree [OPTIONS] [PATH...]");
-    println!("List contents of directories in a tree-like format.");
-    println!("\nOptions:");
-    println!("  -a, --all             All files are listed");
-    println!("  -d, --dirs-only       List directories only");
-    println!("  -i, --no-indent       Don't print indentation lines");
-    println!("  -f, --full-path       Display full file paths");
-    println!("  -g, --gitignore       Ignore files specified in .gitignore");
-    println!("  -L, --max-depth LEVEL Max display depth of the directory tree");
-    println!("  -o, --output FILE     Output tree to a file");
-    println!("  -v, --version         Print version information");
-    println!("  -h, --help            Print this help message");
-}
-
-fn visit_dir(
-    dir: &Path,
-    config: &Config,
-    level: usize,
-    stats: &mut FileStats,
-    prefix: &str,
-) -> io::Result<String> {
-    let mut output: String = String::new();
-
-    // Check max depth
-    if let Some(max_depth) = config.max_depth {
-        if level > max_depth {
-            return Ok(output);
-        }
-    }
-
-    // Read .gitignore patterns if gitignore option is used
-    let gitignore_patterns: Vec<String> = if config.gitignore {
-        read_gitignore(dir)
-    } else {
-        Vec::new()
-    };
-
-    // Print directory name at level 0
-    if level == 0 {
-        // Use full path if -f/--full-path is set
-        let display_path: PathBuf = if config.full_path {
-            dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf())
-        } else {
-            dir.to_path_buf()
-        };
-        output.push_str(&format!("{}/\n", display_path.display()));
-        stats.dirs += 1;
-    }
-
-    let entries: fs::ReadDir = fs::read_dir(dir)?;
-    let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
-
-    // Sort entries by name
-    entries.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
-
-    // Iterate through sorted entries
-    for (index, entry) in entries.iter().enumerate() {
-        let path: PathBuf = entry.path();
-        let file_name: std::ffi::OsString = entry.file_name();
-        let is_dir: bool = path.is_dir();
-
-        // Skip hidden files unless -a flag is provided
-        if !config.all && file_name.to_string_lossy().starts_with('.') {
-            continue;
-        }
-
-        // Skip files if -d flag is provided
-        if config.dirs_only && !is_dir {
-            continue;
-        }
-
-        // Skip .git directory if gitignore option is used
-        if config.gitignore && file_name == ".git" {
-            continue;
-        }
-
-        // Check gitignore patterns
-        if config.gitignore && matches_gitignore_pattern(&path, dir, &gitignore_patterns) {
-            continue;
-        }
-
-        let is_last: bool = index == entries.len() - 1;
-
-        // Calculate new prefix for child items
-        let (connector, new_prefix) = if config.no_indent {
-            ("", "")
-        } else if is_last {
-            ("└── ", "    ")
-        } else {
-            ("├── ", "│   ")
-        };
-
-        // Create display name
-        let display_name: String = if config.full_path {
-            // Use canonicalized full path if requested
-            let full_path: PathBuf = path.canonicalize().unwrap_or_else(|_| path.clone());
-            full_path.to_string_lossy().to_string()
-        } else {
-            // Use just the filename
-            let name: String = if is_dir {
-                format!("{}/", file_name.to_string_lossy())
-            } else {
-                file_name.to_string_lossy().to_string()
-            };
-            name
-        };
-
-        // Add current entry to output
-        output.push_str(&format!("{}{}{}\n", prefix, connector, display_name));
-
-        // Update statistics
-        if is_dir {
-            stats.dirs += 1;
-            // Recursively visit subdirectories
-            let child_prefix: String = format!("{}{}", prefix, new_prefix);
-            let child_output: String = visit_dir(&path, config, level + 1, stats, &child_prefix)?;
-            output.push_str(&child_output);
-        } else {
-            stats.files += 1;
-        }
-    }
-
-    Ok(output)
 }
