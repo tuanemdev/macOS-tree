@@ -73,7 +73,20 @@ fn generate_tree(config: &Config) -> io::Result<()> {
 
     for path in &config.paths {
         let mut path_stats: FileStats = FileStats { dirs: 0, files: 0 };
-        let path_tree: String = visit_dir(path, config, 0, &mut path_stats, "")?;
+        let gitignore_patterns: Vec<String> = if config.gitignore {
+            read_gitignore(path)
+        } else {
+            Vec::new()
+        };
+        let path_tree: String = visit_dir(
+            path,
+            path,
+            config,
+            0,
+            &mut path_stats,
+            &gitignore_patterns,
+            "",
+        )?;
 
         tree_output.push_str(&path_tree);
         tree_output.push_str(&format!(
@@ -171,9 +184,11 @@ fn print_help() {
 
 fn visit_dir(
     dir: &Path,
+    base_dir: &Path,
     config: &Config,
     level: usize,
     stats: &mut FileStats,
+    gitignore_patterns: &Vec<String>,
     prefix: &str,
 ) -> io::Result<String> {
     let mut output: String = String::new();
@@ -185,13 +200,6 @@ fn visit_dir(
         }
     }
 
-    // Read .gitignore patterns if gitignore option is used
-    let gitignore_patterns: Vec<String> = if config.gitignore {
-        read_gitignore(dir)
-    } else {
-        Vec::new()
-    };
-
     // Print directory name at level 0
     if level == 0 {
         // Use full path if -f/--full-path is set
@@ -201,7 +209,6 @@ fn visit_dir(
             dir.to_path_buf()
         };
         output.push_str(&format!("{}/\n", display_path.display()));
-        stats.dirs += 1;
     }
 
     let entries: fs::ReadDir = fs::read_dir(dir)?;
@@ -227,12 +234,12 @@ fn visit_dir(
         }
 
         // Skip .git directory if gitignore option is used
-        if config.gitignore && file_name == ".git" {
+        if config.gitignore && path == base_dir.join(".git") {
             continue;
         }
 
         // Check gitignore patterns
-        if config.gitignore && matches_pattern(&path, dir, &gitignore_patterns) {
+        if config.gitignore && matches_pattern(&path, base_dir, gitignore_patterns) {
             continue;
         }
 
@@ -270,7 +277,15 @@ fn visit_dir(
             stats.dirs += 1;
             // Recursively visit subdirectories
             let child_prefix: String = format!("{}{}", prefix, new_prefix);
-            let child_output: String = visit_dir(&path, config, level + 1, stats, &child_prefix)?;
+            let child_output: String = visit_dir(
+                &path,
+                base_dir,
+                config,
+                level + 1,
+                stats,
+                gitignore_patterns,
+                &child_prefix,
+            )?;
             output.push_str(&child_output);
         } else {
             stats.files += 1;
@@ -278,6 +293,29 @@ fn visit_dir(
     }
 
     Ok(output)
+}
+
+// Read .gitignore file
+fn read_gitignore(dir: &Path) -> Vec<String> {
+    let gitignore_path: PathBuf = dir.join(".gitignore");
+    if !gitignore_path.exists() {
+        return Vec::new();
+    }
+
+    let file: fs::File = match fs::File::open(&gitignore_path) {
+        Ok(file) => file,
+        Err(_) => return Vec::new(),
+    };
+
+    let reader: BufReader<fs::File> = BufReader::new(file);
+    reader
+        .lines()
+        .filter_map(Result::ok)
+        .filter(|line: &String| {
+            // Skip comments and empty lines
+            !line.trim().is_empty() && !line.trim().starts_with('#')
+        })
+        .collect()
 }
 
 // pattern matching
@@ -294,12 +332,6 @@ fn matches_pattern(path: &Path, base_dir: &Path, patterns: &[String]) -> bool {
         .unwrap_or_default();
 
     patterns.iter().any(|pattern| {
-        // Trim whitespace and handle negation
-        let pattern: &str = pattern.trim();
-        if pattern.is_empty() || pattern.starts_with('#') {
-            return false;
-        }
-
         // Handle negation patterns
         let is_negation: bool = pattern.starts_with('!');
         let pattern: &str = if is_negation { &pattern[1..] } else { pattern };
@@ -377,27 +409,4 @@ fn matches_filename_pattern(filename: &str, pattern: &str) -> bool {
     }
 
     wildcard_match(&pattern_chars, &filename_chars)
-}
-
-// Read .gitignore file
-fn read_gitignore(dir: &Path) -> Vec<String> {
-    let gitignore_path: PathBuf = dir.join(".gitignore");
-    if !gitignore_path.exists() {
-        return Vec::new();
-    }
-
-    let file: fs::File = match fs::File::open(&gitignore_path) {
-        Ok(file) => file,
-        Err(_) => return Vec::new(),
-    };
-
-    let reader: BufReader<fs::File> = BufReader::new(file);
-    reader
-        .lines()
-        .filter_map(Result::ok)
-        .filter(|line: &String| {
-            // Skip comments and empty lines
-            !line.trim().is_empty() && !line.trim().starts_with('#')
-        })
-        .collect()
 }
