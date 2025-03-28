@@ -8,14 +8,6 @@ Original C codebase: Tree of Unix/Linux
 
 -  [Github](https://github.com/Old-Man-Programmer/tree)
 
-## Features
-
--   Displays directory structures in a tree-like format.
--   Customizable output depth.
--   Filters for files and directories.
--   Colorized output.
--   Support for hidden files and directories.
-
 ## Installation
 
 0.  Install Rust
@@ -45,17 +37,20 @@ Original C codebase: Tree of Unix/Linux
 ## Usage
 
 ```zsh
-tree [OPTIONS] [DIRECTORY]
+tree [OPTIONS] [DIRECTORY...]
 ```
 
 ### Options
 
 -   `-a`, `--all`: List all files, including hidden files and directories.
 -   `-d`, `--dirs-only`: List directories only.
--   `-L`, `--level <LEVEL>`: Descend only level directories deep.
+-   `-i`, `--no-indent`: Don't print indentation lines".
 -   `-f`, `--full-path`: Print the full path prefix for each file.
--   `-h`, `--help`: Print help information.
+-   `-g`, `--gitignore`: Ignore files specified in .gitignore and .git folder (root dir only).
+-   `-l`, `--max-depth <LEVEL>`: Descend only level directories deep.
+-   `-o`, `--output <FILE_PATH>`: Output tree to a file.
 -   `-V`, `--version`: Print version information.
+-   `-h`, `--help`: Print help information.
 
 ### Examples
 
@@ -86,7 +81,7 @@ tree [OPTIONS] [DIRECTORY]
 -   List the directory structure up to 2 levels deep:
 
     ```zsh
-    tree -L 2
+    tree -l 2
     ```
 
 - List the full path of each file and directory
