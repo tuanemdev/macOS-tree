@@ -217,31 +217,37 @@ fn visit_dir(
     // Sort entries by name
     entries.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
 
-    // Iterate through sorted entries
-    for (index, entry) in entries.iter().enumerate() {
+    // Filter out entries based on config
+    entries.retain(|entry: &fs::DirEntry| {
         let path: PathBuf = entry.path();
         let file_name: std::ffi::OsString = entry.file_name();
         let is_dir: bool = path.is_dir();
 
         // Skip hidden files unless -a flag is provided
         if !config.all && file_name.to_string_lossy().starts_with('.') {
-            continue;
+            return false;
         }
-
         // Skip files if -d flag is provided
         if config.dirs_only && !is_dir {
-            continue;
+            return false;
         }
-
         // Skip .git directory if gitignore option is used
         if config.gitignore && path == base_dir.join(".git") {
-            continue;
+            return false;
         }
-
         // Check gitignore patterns
         if config.gitignore && matches_pattern(&path, base_dir, gitignore_patterns) {
-            continue;
+            return false;
         }
+
+        return true;
+    });
+
+    // Iterate through sorted entries
+    for (index, entry) in entries.iter().enumerate() {
+        let path: PathBuf = entry.path();
+        let file_name: std::ffi::OsString = entry.file_name();
+        let is_dir: bool = path.is_dir();
 
         let is_last: bool = index == entries.len() - 1;
 
@@ -347,7 +353,7 @@ fn matches_pattern(path: &Path, base_dir: &Path, patterns: &[String]) -> bool {
         // Check exact filename or path matches
         if is_absolute_pattern {
             // For absolute patterns, match against relative path
-            if relative_path == pattern || relative_path.ends_with(&format!("/{}", pattern)) {
+            if relative_path == pattern {
                 return !is_negation;
             }
         } else {
