@@ -1,99 +1,125 @@
-# macOS-tree
+# Tree Command - Rust Implementation
 
-A Rust implementation of the `tree` command for macOS.
+A Rust implementation of the `tree` command that displays directory structures in a tree-like format.
 
-Original C codebase: Tree of Unix/Linux
+## Features
 
--  [Gitlab](https://gitlab.com/OldManProgrammer/unix-tree)
-
--  [Github](https://github.com/Old-Man-Programmer/tree)
+- **Modern CLI**: Built with `clap` for robust command-line argument parsing
+- **Modular Architecture**: Well-organized code structure with separate modules
+- **gitignore Support**: Respects `.gitignore` patterns when listing files
+- **Flexible Output**: Support for various display options and file output
+- **Cross-platform**: Works on macOS, Linux, and Windows
 
 ## Installation
 
-0.  Install Rust
-    ```zsh
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-    ```
+```bash
+cargo build --release
+```
 
-1.  Clone the repository:
-
-    ```zsh
-    git clone https://github.com/tuanemdev/macOS-tree.git
-    ```
-
-2.  Navigate to the project directory:
-
-    ```zsh
-    cd macOS-tree
-    ```
-
-3.  Build and install:
-
-    ```zsh
-    cargo build --release
-    cp target/release/tree /usr/local/bin/
-    ```
+The binary will be available at `target/release/tree`.
 
 ## Usage
 
-```zsh
-tree [OPTIONS] [DIRECTORY...]
+```bash
+# Basic usage - list current directory
+tree
+
+# List specific directory
+tree /path/to/directory
+
+# Show all files including hidden ones
+tree -a
+
+# Show directories only
+tree -d
+
+# Limit depth
+tree -L 2
+
+# Output to file
+tree -o output.txt
+
+# Respect .gitignore patterns
+tree -g
+
+# Show full paths
+tree -f
+
+# No indentation lines
+tree -i
 ```
 
-### Options
+## Options
 
--   `-a`, `--all`: List all files, including hidden files and directories.
--   `-d`, `--dirs-only`: List directories only.
--   `-i`, `--no-indent`: Don't print indentation lines".
--   `-f`, `--full-path`: Print the full path prefix for each file.
--   `-g`, `--gitignore`: Ignore files specified in .gitignore and .git folder (root dir only).
--   `-l`, `--max-depth <LEVEL>`: Descend only level directories deep.
--   `-o`, `--output <FILE_PATH>`: Output tree to a file.
--   `-V`, `--version`: Print version information.
--   `-h`, `--help`: Print help information.
+- `-a, --all`: All files are listed (including hidden files)
+- `-d, --dirs-only`: List directories only
+- `-i, --no-indent`: Don't print indentation lines
+- `-f, --full-path`: Display full file paths
+- `-g, --gitignore`: Ignore files specified in .gitignore
+- `-L, --max-depth <LEVEL>`: Max display depth of the directory tree
+- `-o, --output <FILE>`: Output tree to a file
+- `-h, --help`: Print help information
+- `-V, --version`: Print version information
 
-### Examples
+## Project Structure
 
--   List the current directory:
+```
+src/
+├── main.rs         # Entry point and main application logic
+├── config.rs       # Command-line argument parsing with clap
+├── tree.rs         # Core tree generation logic
+├── gitignore.rs    # gitignore pattern matching
+├── stats.rs        # File and directory statistics
+└── error.rs        # Error handling and custom error types
+```
 
-    ```zsh
-    tree
-    ```
+## Module Overview
 
--   List the `Documents` directory:
+### `config.rs`
+- Defines the CLI interface using `clap`
+- Handles command-line argument parsing
+- Provides the `Config` struct with all application settings
 
-    ```zsh
-    tree ~/Documents
-    ```
+### `tree.rs`
+- Contains the main tree generation logic
+- Handles directory traversal and file filtering
+- Manages output formatting and display
 
--   List all files and directories in the current directory, including hidden ones:
+### `gitignore.rs`
+- Implements gitignore pattern matching
+- Supports wildcards and various gitignore features
+- Handles both file and directory patterns
 
-    ```zsh
-    tree -a
-    ```
+### `stats.rs`
+- Tracks file and directory counts
+- Provides summary statistics
 
--   List only directories in the current directory:
+### `error.rs`
+- Defines custom error types using `thiserror`
+- Provides structured error handling throughout the application
 
-    ```zsh
-    tree -d
-    ```
+## Dependencies
 
--   List the directory structure up to 2 levels deep:
+- `clap`: Modern command-line argument parser
+- `anyhow`: Easy error handling
+- `thiserror`: Custom error types
 
-    ```zsh
-    tree -l 2
-    ```
+## Building
 
-- List the full path of each file and directory
+```bash
+# Debug build
+cargo build
 
-    ```zsh
-    tree -f
-    ```
+# Release build (optimized)
+cargo build --release
 
-## Contributing
+# Run tests
+cargo test
 
-Contributions are welcome! Please feel free to submit a pull request or open an issue.
+# Check code without building
+cargo check
+```
 
 ## License
 
-This project is licensed under the GNU General Public License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the same terms as the original.
